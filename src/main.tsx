@@ -45,7 +45,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import './styles.css';
 
-type SensorKey = 'ph' | 'tds' | 'turbidity' | 'temperature' | 'conductivity' | 'iron' | 'manganese';
+type SensorKey = 'ph' | 'tds' | 'turbidity' | 'temperature';
 type Severity = 'safe' | 'warning' | 'critical';
 type Range = '1h' | '6h' | '24h' | '7d';
 type NavItem =
@@ -74,8 +74,6 @@ type Limits = {
   phMax: number;
   tds: number;
   turbidity: number;
-  iron: number;
-  manganese: number;
 };
 
 const defaultLimits: Limits = {
@@ -83,8 +81,6 @@ const defaultLimits: Limits = {
   phMax: 8.5,
   tds: 600,
   turbidity: 10,
-  iron: 0.3,
-  manganese: 0.1,
 };
 
 const navTargets: Record<NavItem, string> = {
@@ -116,9 +112,6 @@ const initialSensors: SensorState = {
   tds: 520,
   turbidity: 32.4,
   temperature: 27.6,
-  conductivity: 950,
-  iron: 1.82,
-  manganese: 0.64,
   flow_rate: 12.4,
   pressure: 1.7,
   output_pressure: 1.2,
@@ -133,9 +126,6 @@ const sensorMeta: Record<SensorKey, { label: string; unit: string; icon: React.E
   tds: { label: 'TDS', unit: 'ppm', icon: Waves, precision: 0 },
   turbidity: { label: 'Turbidity', unit: 'NTU', icon: Activity, precision: 1 },
   temperature: { label: 'Temperature', unit: 'deg C', icon: Thermometer, precision: 1 },
-  conductivity: { label: 'Conductivity', unit: 'uS/cm', icon: Zap, precision: 0 },
-  iron: { label: 'Iron (Fe)', unit: 'mg/L', icon: Cpu, precision: 2 },
-  manganese: { label: 'Manganese (Mn)', unit: 'mg/L', icon: Cpu, precision: 2 },
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -148,7 +138,7 @@ function classify(key: SensorKey, value: number, limits: Limits): { status: stri
     if (value > limits.phMax) return { status: 'HIGH', severity: 'warning' };
     return { status: 'NORMAL', severity: 'safe' };
   }
-  if (key === 'temperature' || key === 'conductivity') return { status: 'MONITOR', severity: 'safe' };
+  if (key === 'temperature') return { status: 'MONITOR', severity: 'safe' };
   const limit = limits[key as keyof Limits] as number;
   if (value > limit * 1.6) return { status: 'HIGH', severity: 'critical' };
   if (value > limit) return { status: 'HIGH', severity: 'warning' };
@@ -157,12 +147,10 @@ function classify(key: SensorKey, value: number, limits: Limits): { status: stri
 
 function buildTreatment(input: SensorState, limits: Limits) {
   const sediment = input.turbidity > limits.turbidity;
-  const feMn = input.iron > limits.iron || input.manganese > limits.manganese;
   const ro = input.tds > limits.tds;
   const carbon = input.odor;
   return [
     { name: 'Sediment Filter', on: sediment, reason: sediment ? 'High turbidity detected' : 'Turbidity within configured limit' },
-    { name: 'Fe/Mn Removal', on: feMn, reason: feMn ? 'High Fe/Mn detected' : 'Fe and Mn within configured limits' },
     { name: 'Activated Carbon/Biochar', on: carbon, reason: carbon ? 'Organic/odor treatment requested' : 'Organic/odor treatment not required' },
     { name: 'RO/NF', on: ro, reason: ro ? 'High TDS detected' : 'TDS within configured limit' },
     { name: 'UV Disinfection', on: true, reason: 'Final disinfection policy enabled' },
@@ -178,8 +166,6 @@ function buildOutput(input: SensorState, limits: Limits): SensorState {
     ph: clamp(input.ph + 0.28, 6.7, 7.6),
     tds: on('RO/NF') ? input.tds * 0.38 : input.tds * 0.96,
     turbidity: on('Sediment Filter') ? input.turbidity * 0.12 : input.turbidity * 0.9,
-    iron: on('Fe/Mn Removal') ? input.iron * 0.08 : input.iron * 0.85,
-    manganese: on('Fe/Mn Removal') ? input.manganese * 0.09 : input.manganese * 0.86,
   };
 }
 
@@ -188,9 +174,7 @@ function outputPasses(output: SensorState, limits: Limits) {
     output.ph >= limits.phMin &&
     output.ph <= limits.phMax &&
     output.tds <= limits.tds &&
-    output.turbidity <= limits.turbidity &&
-    output.iron <= limits.iron &&
-    output.manganese <= limits.manganese
+    output.turbidity <= limits.turbidity
   );
 }
 
@@ -199,8 +183,6 @@ function safetyScore(input: SensorState, output: SensorState, limits: Limits) {
     output.ph >= limits.phMin && output.ph <= limits.phMax ? 18 : 5,
     Math.max(0, 18 - (output.tds / limits.tds) * 8),
     Math.max(0, 18 - (output.turbidity / limits.turbidity) * 10),
-    Math.max(0, 18 - (output.iron / limits.iron) * 10),
-    Math.max(0, 18 - (output.manganese / limits.manganese) * 10),
     input.battery > 25 ? 10 : 4,
   ];
   return Math.round(clamp(checks.reduce((a, b) => a + b, 0), 0, 100));
@@ -215,9 +197,6 @@ function nextSensors(previous: SensorState, tick: number): SensorState {
     tds: clamp(previous.tds + (highTds ? 24 : -12) + (Math.random() - 0.5) * 20, 360, 870),
     turbidity: clamp(previous.turbidity + (recovers ? -4 : (Math.random() - 0.35) * 3), 5, 48),
     temperature: clamp(previous.temperature + (Math.random() - 0.5) * 0.35, 25.8, 30.5),
-    conductivity: clamp(previous.conductivity + (Math.random() - 0.45) * 35, 630, 1260),
-    iron: clamp(previous.iron + (recovers ? -0.12 : (Math.random() - 0.45) * 0.14), 0.16, 2.4),
-    manganese: clamp(previous.manganese + (recovers ? -0.05 : (Math.random() - 0.45) * 0.06), 0.05, 0.82),
     flow_rate: clamp(previous.flow_rate + (Math.random() - 0.5) * 0.5, 9.5, 15.2),
     pressure: clamp(previous.pressure + (Math.random() - 0.5) * 0.08, 1.3, 2.1),
     output_pressure: clamp(previous.output_pressure + (Math.random() - 0.5) * 0.05, 0.9, 1.6),
@@ -268,7 +247,7 @@ function Shell() {
   const alerts = buildAlerts(sensors, output, limits, pass).filter((alert) => !dismissed.includes(alert.id));
   const chartData = useMemo(() => makeChart(range, sensors), [range, sensors]);
   const passportPayload = JSON.stringify({
-    unit: 'JAL-SHIELD-SIH-2026-01',
+    unit: 'BLUE-SHIELD-SIH-2026-01',
     source: 'DEMO LOCATION: Borewell / Mining-Affected Water',
     input: pickQuality(sensors),
     output: pickQuality(output),
@@ -349,7 +328,7 @@ function Sidebar({ collapsed, current, onSelect }: { collapsed: boolean; current
     <aside className={`${collapsed ? 'lg:w-24' : 'lg:w-72'} fixed inset-y-0 left-0 z-30 hidden border-r border-cyan-200/10 bg-[#07111d]/95 p-4 backdrop-blur-xl transition-all lg:block`}>
       <div className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center rounded-lg border border-cyan-300/25 bg-cyan-400/10"><ShieldCheck className="text-cyan-300" /></div>
-        {!collapsed && <div><h1 className="text-lg font-bold">JAL-SHIELD</h1><p className="text-xs text-cyan-200/70">SIH 2026 Prototype</p></div>}
+        {!collapsed && <div><h1 className="text-lg font-bold">BLUE SHIELD</h1><p className="text-xs text-cyan-200/70">SIH 2026 Prototype</p></div>}
       </div>
       <nav className="mt-8 space-y-1">
         {navItems.map(([item, Icon]) => (
@@ -374,7 +353,7 @@ function Header({ collapsed, setCollapsed, score, pass, now, demoMode, setDemoMo
         <div className="flex min-w-0 items-center gap-3">
           <button className="rounded-lg border border-cyan-200/15 p-2 text-cyan-200" onClick={() => setCollapsed(!collapsed)} title="Toggle sidebar"><Menu size={20} /></button>
           <div className="min-w-0">
-            <h2 className="truncate text-xl font-bold sm:text-2xl">JAL-SHIELD</h2>
+            <h2 className="truncate text-xl font-bold sm:text-2xl">BLUE SHIELD</h2>
             <p className="text-xs text-slate-400 sm:text-sm">Smart Water Purification & Quality Monitoring System</p>
             <p className="hidden text-xs text-cyan-200/80 sm:block">Real-time Monitoring • Adaptive Purification • Safe Water</p>
           </div>
@@ -436,15 +415,13 @@ function AdaptiveTreatment({ treatment, pass }: { treatment: ReturnType<typeof b
 function SafetyIndicator({ pass, score, sensors, limits }: { pass: boolean; score: number; sensors: SensorState; limits: Limits }) {
   const contamination = [
     sensors.turbidity > limits.turbidity && 'Turbidity',
-    sensors.iron > limits.iron && 'Iron',
-    sensors.manganese > limits.manganese && 'Manganese',
     sensors.tds > limits.tds && 'TDS',
   ].filter(Boolean).join(', ') || 'None above configured limits';
   return <Panel title="Water Safety"><div className="flex items-center gap-4"><div className={`grid h-20 w-20 place-items-center rounded-full border ${pass ? 'border-emerald-300/40 bg-emerald-400/10' : 'border-red-300/40 bg-red-400/10'}`}>{pass ? <CheckCircle2 className="text-emerald-300" size={42} /> : <XCircle className="text-red-300" size={42} />}</div><div><p className="text-sm text-slate-400">Output verification</p><h3 className="text-2xl font-bold">{pass ? 'WATER SAFE FOR DISPENSING' : 'WATER NOT SAFE'}</h3><p className="mt-1 text-sm text-slate-300">Score {score}/100</p></div></div><div className="mt-5 rounded-lg border border-white/10 bg-white/[0.03] p-3"><p className="text-xs uppercase text-slate-500">Detected contamination</p><p className="mt-1 font-semibold text-amber-200">{contamination}</p></div></Panel>;
 }
 
 function TrendChart({ data, range, setRange }: { data: any[]; range: Range; setRange: (r: Range) => void }) {
-  return <Panel title="Real-Time Trend Graph" badge="DEMO SENSOR DATA"><div className="mb-3 flex flex-wrap gap-2">{(['1h', '6h', '24h', '7d'] as Range[]).map((r) => <button key={r} onClick={() => setRange(r)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${range === r ? 'border-cyan-300/40 bg-cyan-400/15 text-cyan-100' : 'border-white/10 text-slate-400'}`}>Last {r}</button>)}</div><div className="h-72"><ResponsiveContainer><LineChart data={data}><CartesianGrid stroke="rgba(148,163,184,.12)" /><XAxis dataKey="label" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: '#07111d', border: '1px solid rgba(125,211,252,.2)', borderRadius: 8 }} /><Line dataKey="ph" stroke="#22d3ee" dot={false} /><Line dataKey="tds" stroke="#38bdf8" dot={false} /><Line dataKey="turbidity" stroke="#f59e0b" dot={false} /><Line dataKey="temperature" stroke="#a78bfa" dot={false} /><Line dataKey="iron" stroke="#fb7185" dot={false} /><Line dataKey="manganese" stroke="#f97316" dot={false} /></LineChart></ResponsiveContainer></div></Panel>;
+  return <Panel title="Real-Time Trend Graph" badge="DEMO SENSOR DATA"><div className="mb-3 flex flex-wrap gap-2">{(['1h', '6h', '24h', '7d'] as Range[]).map((r) => <button key={r} onClick={() => setRange(r)} className={`rounded-md border px-3 py-1.5 text-xs font-bold ${range === r ? 'border-cyan-300/40 bg-cyan-400/15 text-cyan-100' : 'border-white/10 text-slate-400'}`}>Last {r}</button>)}</div><div className="h-72"><ResponsiveContainer><LineChart data={data}><CartesianGrid stroke="rgba(148,163,184,.12)" /><XAxis dataKey="label" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: '#07111d', border: '1px solid rgba(125,211,252,.2)', borderRadius: 8 }} /><Line dataKey="ph" stroke="#22d3ee" dot={false} /><Line dataKey="tds" stroke="#38bdf8" dot={false} /><Line dataKey="turbidity" stroke="#f59e0b" dot={false} /><Line dataKey="temperature" stroke="#a78bfa" dot={false} /></LineChart></ResponsiveContainer></div></Panel>;
 }
 
 function DecisionEngine({ sensors, limits, treatment }: { sensors: SensorState; limits: Limits; treatment: ReturnType<typeof buildTreatment> }) {
@@ -452,7 +429,7 @@ function DecisionEngine({ sensors, limits, treatment }: { sensors: SensorState; 
 }
 
 function OutputVerification({ output, limits, pass }: { output: SensorState; limits: Limits; pass: boolean }) {
-  const keys: SensorKey[] = ['ph', 'tds', 'turbidity', 'iron', 'manganese', 'temperature'];
+  const keys: SensorKey[] = ['ph', 'tds', 'turbidity', 'temperature'];
   return <Panel title="Output Water Quality"><div className="space-y-2">{keys.map((key) => { const ok = classify(key, output[key], limits).severity !== 'critical' && (key === 'temperature' || classify(key, output[key], limits).severity === 'safe'); return <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm"><span>{sensorMeta[key].label}: {output[key].toFixed(sensorMeta[key].precision)} {sensorMeta[key].unit}</span><Badge tone={ok ? 'green' : 'red'}>{ok ? 'PASS' : 'FAIL'}</Badge></div>; })}</div><div className={`mt-4 rounded-lg border p-4 text-center ${pass ? 'border-emerald-300/30 bg-emerald-400/10' : 'border-red-300/30 bg-red-400/10'}`}><h4 className="text-xl font-bold">{pass ? 'WATER SAFE FOR DISPENSING' : 'OUTPUT VERIFICATION FAILED'}</h4><p className="mt-1 text-sm">{pass ? 'Dispensing enabled' : 'DISPENSING BLOCKED • RECIRCULATION ACTIVATED'}</p>{!pass && <div className="mx-auto mt-3 h-2 max-w-sm overflow-hidden rounded-full bg-red-950"><div className="recirc h-full w-1/2 rounded-full bg-red-300" /></div>}</div></Panel>;
 }
 
@@ -460,9 +437,8 @@ function Maintenance({ sensors, treatment }: { sensors: SensorState; treatment: 
   const volume = sensors.flow_rate * 420;
   const cards = [
     ['Sediment Filter', 72 - volume / 10000, '0.42 bar', treatment[0].on],
-    ['Fe/Mn Media', 65 - volume / 12000, '0.31 bar', treatment[1].on],
-    ['Activated Carbon/Biochar', 58 - volume / 14000, '0.24 bar', treatment[2].on],
-    ['RO Membrane', 35 - volume / 18000, '0.68 bar', treatment[3].on],
+    ['Activated Carbon/Biochar', 58 - volume / 14000, '0.24 bar', treatment[1].on],
+    ['RO Membrane', 35 - volume / 18000, '0.68 bar', treatment[2].on],
     ['UV Lamp', 81 - volume / 30000, 'Nominal', true],
   ] as const;
   return <Panel title="Filter & Maintenance"><div className="space-y-3">{cards.map(([name, raw, pressure, active]) => <FilterLifeCard key={name} name={name} remaining={clamp(raw, 8, 99)} pressure={pressure} active={active} />)}</div><p className="mt-3 text-sm text-amber-200">Warning: RO membrane replacement soon</p></Panel>;
@@ -483,12 +459,12 @@ function SystemOverview({ sensors }: { sensors: SensorState }) {
 }
 
 function WaterPassport({ payload, now, pass }: { payload: string; now: Date; pass: boolean }) {
-  return <Panel title="Water Passport"><div className="flex gap-4"><div className="rounded-lg bg-white p-2"><QRCodeSVG value={payload} size={118} /></div><div className="text-sm text-slate-300"><p className="font-bold text-white">Unit ID: JAL-SHIELD-SIH-2026-01</p><p>Source: DEMO LOCATION</p><p>Last measurement: {now.toLocaleString()}</p><p>Verification: {pass ? 'PASS' : 'FAIL'}</p><p>Filter status: RO service soon</p></div></div></Panel>;
+  return <Panel title="Water Passport"><div className="flex gap-4"><div className="rounded-lg bg-white p-2"><QRCodeSVG value={payload} size={118} /></div><div className="text-sm text-slate-300"><p className="font-bold text-white">Unit ID: BLUE-SHIELD-SIH-2026-01</p><p>Source: DEMO LOCATION</p><p>Last measurement: {now.toLocaleString()}</p><p>Verification: {pass ? 'PASS' : 'FAIL'}</p><p>Filter status: RO service soon</p></div></div></Panel>;
 }
 
 function Prediction({ sensors }: { sensors: SensorState }) {
-  const data = Array.from({ length: 12 }, (_, i) => ({ day: `D${i + 1}`, tds: sensors.tds + i * 8, turbidity: Math.max(3, sensors.turbidity - i * 1.3), iron: sensors.iron - i * 0.04, manganese: sensors.manganese - i * 0.015, ph: sensors.ph + i * 0.02 }));
-  return <Panel title="AI Water Quality Prediction" badge="AI DEMO / SIMULATED PREDICTION"><div className="h-48"><ResponsiveContainer><AreaChart data={data}><CartesianGrid stroke="rgba(148,163,184,.12)" /><XAxis dataKey="day" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: '#07111d', border: '1px solid rgba(125,211,252,.2)', borderRadius: 8 }} /><Area dataKey="tds" stroke="#38bdf8" fill="#38bdf822" /><Area dataKey="turbidity" stroke="#f59e0b" fill="#f59e0b22" /></AreaChart></ResponsiveContainer></div><div className="mt-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg border border-white/10 p-3">RO Membrane<br /><b>Estimated replacement: 12 days</b></div><div className="rounded-lg border border-white/10 p-3">Fe/Mn Media<br /><b>Estimated replacement: 19 days</b></div></div><p className="mt-3 text-xs text-slate-500">Prediction does not guarantee drinking-water safety.</p></Panel>;
+  const data = Array.from({ length: 12 }, (_, i) => ({ day: `D${i + 1}`, tds: sensors.tds + i * 8, turbidity: Math.max(3, sensors.turbidity - i * 1.3), ph: sensors.ph + i * 0.02 }));
+  return <Panel title="AI Water Quality Prediction" badge="AI DEMO / SIMULATED PREDICTION"><div className="h-48"><ResponsiveContainer><AreaChart data={data}><CartesianGrid stroke="rgba(148,163,184,.12)" /><XAxis dataKey="day" stroke="#64748b" fontSize={11} /><YAxis stroke="#64748b" fontSize={11} /><Tooltip contentStyle={{ background: '#07111d', border: '1px solid rgba(125,211,252,.2)', borderRadius: 8 }} /><Area dataKey="tds" stroke="#38bdf8" fill="#38bdf822" /><Area dataKey="turbidity" stroke="#f59e0b" fill="#f59e0b22" /></AreaChart></ResponsiveContainer></div><div className="mt-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg border border-white/10 p-3">RO Membrane<br /><b>Estimated replacement: 12 days</b></div><div className="rounded-lg border border-white/10 p-3">UV Lamp<br /><b>Operating normally</b></div></div><p className="mt-3 text-xs text-slate-500">Prediction does not guarantee drinking-water safety.</p></Panel>;
 }
 
 function SettingsPanel({ limits, setLimits }: { limits: Limits; setLimits: (l: Limits) => void }) {
@@ -501,15 +477,15 @@ function Reports({ sensors, output, treatment, alerts, pass }: { sensors: Sensor
     const blob = new Blob([type === 'csv' ? Object.entries(pickQuality(output)).map(([k, v]) => `${k},${v}`).join('\n') : JSON.stringify(report, null, 2)], { type: 'text/plain' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); URL.revokeObjectURL(a.href);
   };
-  return <Panel title="Report Generation"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ActionButton icon={FileText} label="Generate Water Quality Report" onClick={() => download('jal-shield-report.json', 'json')} /><ActionButton icon={FileDown} label="Download Sensor Data" onClick={() => download('sensor-data.json', 'json')} /><ActionButton icon={FileDown} label="Export CSV" onClick={() => download('sensor-data.csv', 'csv')} /><ActionButton icon={QrCode} label="Generate PDF Report" onClick={() => download('jal-shield-pdf-payload.json', 'json')} /></div></Panel>;
+  return <Panel title="Report Generation"><div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><ActionButton icon={FileText} label="Generate Water Quality Report" onClick={() => download('blue-shield-report.json', 'json')} /><ActionButton icon={FileDown} label="Download Sensor Data" onClick={() => download('sensor-data.json', 'json')} /><ActionButton icon={FileDown} label="Export CSV" onClick={() => download('sensor-data.csv', 'csv')} /><ActionButton icon={QrCode} label="Generate PDF Report" onClick={() => download('blue-shield-pdf-payload.json', 'json')} /></div></Panel>;
 }
 
 function LocationAndGuide({ limits }: { limits: Limits }) {
-  return <Panel title="Water Source & Safety Guide"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-lg border border-cyan-200/12 bg-cyan-400/5 p-4"><MapPin className="text-cyan-300" /><h4 className="mt-3 font-bold">Water Source</h4><p className="text-sm text-slate-300">Source Type: Borewell / Mining-Affected Water</p><p className="text-sm text-slate-300">Location: Demo Location</p><div className="mt-4 grid h-36 place-items-center rounded-lg border border-dashed border-cyan-300/25 text-cyan-200">DEMO LOCATION MAP</div></div><div className="space-y-2 text-sm">{[['pH', `${limits.phMin}-${limits.phMax}`], ['TDS', `<= ${limits.tds} ppm`], ['Turbidity', `<= ${limits.turbidity} NTU`], ['Iron', `<= ${limits.iron} mg/L`], ['Manganese', `<= ${limits.manganese} mg/L`]].map(([k, v]) => <div key={k} className="flex justify-between rounded-lg border border-white/10 p-3"><span>{k}</span><span>{v}</span></div>)}<p className="text-xs text-slate-500">Configured limits - verify against applicable BIS/WHO/local requirements before deployment.</p></div></div></Panel>;
+  return <Panel title="Water Source & Safety Guide"><div className="grid gap-4 md:grid-cols-2"><div className="rounded-lg border border-cyan-200/12 bg-cyan-400/5 p-4"><MapPin className="text-cyan-300" /><h4 className="mt-3 font-bold">Water Source</h4><p className="text-sm text-slate-300">Source Type: Borewell / Mining-Affected Water</p><p className="text-sm text-slate-300">Location: Demo Location</p><div className="mt-4 grid h-36 place-items-center rounded-lg border border-dashed border-cyan-300/25 text-cyan-200">DEMO LOCATION MAP</div></div><div className="space-y-2 text-sm">{[['pH', `${limits.phMin}-${limits.phMax}`], ['TDS', `<= ${limits.tds} ppm`], ['Turbidity', `<= ${limits.turbidity} NTU`], ['Temperature', '15-35 deg C']].map(([k, v]) => <div key={k} className="flex justify-between rounded-lg border border-white/10 p-3"><span>{k}</span><span>{v}</span></div>)}<p className="text-xs text-slate-500">Configured limits - verify against applicable BIS/WHO/local requirements before deployment.</p></div></div></Panel>;
 }
 
 function AboutSystem() {
-  return <Panel title="About System" badge="SIH 2026 HARDWARE PROTOTYPE"><div className="grid gap-4 lg:grid-cols-3"><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="text-cyan-300" /><h4 className="mt-3 font-bold">JAL-SHIELD</h4><p className="mt-2 text-sm text-slate-300">Adaptive mining-aware smart water purification and quality monitoring system for live prototype demonstration.</p></div><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><RefreshCcw className="text-emerald-300" /><h4 className="mt-3 font-bold">Prototype Flow</h4><p className="mt-2 text-sm text-slate-300">Raw water to sensors, classification, selected treatment, output verification, dispensing or recirculation.</p></div><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><AlertTriangle className="text-amber-300" /><h4 className="mt-3 font-bold">Deployment Note</h4><p className="mt-2 text-sm text-slate-300">Demo thresholds and simulated predictions must be validated against applicable BIS, WHO, and local requirements before real drinking-water use.</p></div></div></Panel>;
+  return <Panel title="About System" badge="SIH 2026 HARDWARE PROTOTYPE"><div className="grid gap-4 lg:grid-cols-3"><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><ShieldCheck className="text-cyan-300" /><h4 className="mt-3 font-bold">BLUE SHIELD</h4><p className="mt-2 text-sm text-slate-300">Adaptive mining-aware smart water purification and quality monitoring system for live prototype demonstration.</p></div><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><RefreshCcw className="text-emerald-300" /><h4 className="mt-3 font-bold">Prototype Flow</h4><p className="mt-2 text-sm text-slate-300">Raw water to sensors, classification, selected treatment, output verification, dispensing or recirculation.</p></div><div className="rounded-lg border border-white/10 bg-white/[0.03] p-4"><AlertTriangle className="text-amber-300" /><h4 className="mt-3 font-bold">Deployment Note</h4><p className="mt-2 text-sm text-slate-300">Demo thresholds and simulated predictions must be validated against applicable BIS, WHO, and local requirements before real drinking-water use.</p></div></div></Panel>;
 }
 
 function Step({ label }: { label: string }) {
@@ -528,7 +504,6 @@ function buildAlerts(input: SensorState, output: SensorState, limits: Limits, pa
   const time = new Date().toLocaleTimeString();
   const alerts = [];
   if (input.tds > limits.tds) alerts.push({ id: 'tds', severity: 'red' as const, message: 'High TDS detected', time, sensor: 'TDS', action: 'Route through RO/NF' });
-  if (input.iron > limits.iron) alerts.push({ id: 'iron', severity: 'amber' as const, message: 'High Iron level detected', time, sensor: 'Iron (Fe)', action: 'Activate Fe/Mn removal' });
   if (input.turbidity > limits.turbidity) alerts.push({ id: 'turbidity', severity: 'amber' as const, message: 'Turbidity above configured limit', time, sensor: 'Turbidity', action: 'Activate sediment filter' });
   if (!pass) alerts.push({ id: 'output', severity: 'red' as const, message: 'Output verification failed', time, sensor: 'Output sensors', action: 'Block dispensing and recirculate' });
   alerts.push({ id: 'normal', severity: 'green' as const, message: outputPasses(output, limits) ? 'System operating normally' : 'Treatment loop active', time, sensor: 'Controller', action: 'Continue monitoring' });
@@ -544,13 +519,11 @@ function makeChart(range: Range, current: SensorState) {
     tds: Math.round(current.tds + Math.sin(i / 4) * 80),
     turbidity: Number(Math.max(2, current.turbidity + Math.cos(i / 5) * 12).toFixed(1)),
     temperature: Number((current.temperature + Math.sin(i / 6) * 1.2).toFixed(1)),
-    iron: Number(Math.max(0.05, current.iron + Math.sin(i / 4) * 0.4).toFixed(2)),
-    manganese: Number(Math.max(0.02, current.manganese + Math.cos(i / 4) * 0.13).toFixed(2)),
   }));
 }
 
 function pickQuality(s: SensorState) {
-  return { ph: s.ph, tds: s.tds, turbidity: s.turbidity, temperature: s.temperature, iron: s.iron, manganese: s.manganese };
+  return { ph: s.ph, tds: s.tds, turbidity: s.turbidity, temperature: s.temperature };
 }
 
 createRoot(document.getElementById('root')!).render(<Shell />);
