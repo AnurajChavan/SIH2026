@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #050b12;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(34, 211, 238, 0.08), transparent 32%),
+    radial-gradient(circle at 80% 30%, rgba(16, 185, 129, 0.05), transparent 28%),
+    linear-gradient(180deg, rgba(8, 145, 178, 0.06), transparent 45%);
+}
+
+.recirc {
+  animation: recirculate 1.15s linear infinite;
+}
+
+@keyframes recirculate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
