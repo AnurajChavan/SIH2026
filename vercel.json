@@ -1,0 +1,5 @@
+{
+  "buildCommand": "echo Blue Shield static dashboard",
+  "outputDirectory": ".",
+  "framework": null
+}
